@@ -5,7 +5,7 @@ var Button = CanvasUI.Button = function(attrs) {
 	attrs = extend(Button.defaults, attrs);
   View.call(this, attrs);
 
-  this.text = attrs.text;
+  this._text = attrs.text;
   this.fontWeight = attrs.fontWeight;
   this.fontSize = attrs.fontSize;
   this.fontFamily = attrs.fontFamily;
@@ -15,10 +15,12 @@ var Button = CanvasUI.Button = function(attrs) {
   
   this.bind("mouseenter", function() {
   	this._background = attrs.hoverBackground;
+  	document.documentElement.style.cursor = "pointer";
 		this.root().trigger("change");
   });
   this.bind("mouseleave", function() {
   	this._background = attrs.background;
+  	document.documentElement.style.cursor = "default";
 		this.root().trigger("change");
   });
 };
@@ -59,15 +61,10 @@ Button.defaults = {
 		return this.parent().top();
 	},
 	width: function() {
-		var ctx = CanvasUI.ctx;
-		ctx.save();
-		this.applyStyles(ctx);
-		var width = CanvasUI.ctx.measureText(this.text).width;
-		ctx.restore();
-		return width + 20;
+		return this.measure().width;
 	},
 	height: function() {
-		return CanvasUI.measureTextHeight(this, this.text) + 8;
+		return this.measure().height;
 	}
 };
 Button.prototype.applyStyles = function(ctx) {
@@ -82,9 +79,16 @@ Button.prototype.draw = function(ctx) {
   ctx.save();
 
   this.applyStyles(ctx);
-  ctx.fillText(this.text, this.left() + 10, this.top() + 4, this.width() - 10);
+  ctx.fillText(this._text, this.left() + 10, this.top() + 4, this.width() - 10);
 
   ctx.restore();
+};
+Button.prototype.measure = function() {
+	var o = CanvasUI.measureText(this, this._text);
+	return {
+		width: o.width + 20,
+		height: o.height + 8
+	}
 };
 
 })();

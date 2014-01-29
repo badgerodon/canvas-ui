@@ -17,31 +17,38 @@ var EditText = CanvasUI.EditText = function(attrs) {
   	CanvasUI.focus(this);
   });
   var textarea = null;
+  this.focused = false;
   this.bind("focus", function() {
-  	var self = this;
-  	textarea = document.createElement("textarea");
-  	textarea.style.position = 'absolute';
-  	textarea.style.left = "-999px";
-  	textarea.style.top = "-999px";
-  	textarea.style.width = "2px";
-  	textarea.style.height = "2px";
-  	textarea.addEventListener("blur", function() {
-  		CanvasUI.blur();
-  	}, false);
-  	textarea.addEventListener("keyup", function() {
-  		self.setValue(textarea.value);
-  	}, false);
-  	textarea.addEventListener("keydown", function() {
-  		self.setValue(textarea.value);
-  	}, false);
-  	document.documentElement.appendChild(textarea);
-  	textarea.focus();
+  	if (!textarea) {
+	  	var self = this;
+	  	textarea = document.createElement("textarea");
+	  	textarea.style.position = 'absolute';
+	  	textarea.style.left = "-999px";
+	  	textarea.style.top = "-999px";
+	  	textarea.style.width = "2px";
+	  	textarea.style.height = "2px";
+	  	textarea.addEventListener("blur", function() {
+	  		CanvasUI.blur();
+	  	}, false);
+	  	textarea.addEventListener("keyup", function() {
+	  		self.value(textarea.value);
+	  	}, false);
+	  	textarea.addEventListener("keydown", function() {
+	  		self.value(textarea.value);
+	  	}, false);
+	  	document.documentElement.appendChild(textarea);
+	  	textarea.focus();
+  	}
+  	this.focused = true;
+		this.root().trigger("change");
   });
   this.bind("blur", function() {
   	if (textarea) {
 	  	document.documentElement.removeChild(textarea);
 	  	textarea = null;
   	}
+  	this.focused = false;
+		this.root().trigger("change");
   });
 };
 EditText.prototype = new View;
@@ -71,17 +78,10 @@ EditText.defaults = {
 		return this.parent().top();
 	},
 	width: function() {
-		var ctx = CanvasUI.ctx;
-		ctx.save();
-		this.applyStyles(ctx);
-  	var text = this._value ? this._value : this.placeholder;
-		var width = CanvasUI.ctx.measureText(text).width;
-		ctx.restore();
-		return width + 10;
+		return CanvasUI.measureText(this, this._value ? this._value : this.placeholder).width + 10;
 	},
 	height: function() {
-  	var text = this._value ? this._value : this.placeholder;
-		return CanvasUI.measureTextHeight(this, text) + 8;
+		return CanvasUI.measureText(this, this._value ? this._value : this.placeholder).height + 8;
 	}
 };
 EditText.prototype.applyStyles = function(ctx) {
@@ -102,12 +102,26 @@ EditText.prototype.draw = function(ctx) {
   this.applyStyles(ctx);
   var text = this._value ? this._value : this.placeholder;
   ctx.fillText(text, left, top, width);
+  if (this.focused) {
+  	ctx.fillRect(left + (this._value ? (this.measure().width-10) : 0), top, 1, this.measure().height-8);
+  }
 
   ctx.restore();
 };
-EditText.prototype.setValue = function(value) {
-	this._value = value;
-	this.root().trigger("change");
+EditText.prototype.value = function(value) {
+	if (arguments.length === 1) {
+		this._value = value;
+		this.root().trigger("change");
+	} else {
+		return this._value || "";
+	}
+};
+EditText.prototype.measure = function() {
+	var o = CanvasUI.measureText(this, this._value ? this._value : this.placeholder);
+	return {
+		width: o.width + 10,
+		height: o.height + 8
+	};
 };
 
 })();

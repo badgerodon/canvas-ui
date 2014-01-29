@@ -20,9 +20,6 @@ function extend(obj1, obj2) {
 }
 
 (function() {
-  CanvasUI.VERTICAL = 1;
-  CanvasUI.HORIZONTAL = 2;
-
   function onResize(evt) {
     CanvasUI.canvas.width = window.innerWidth;
     CanvasUI.canvas.height = window.innerHeight;
@@ -33,6 +30,9 @@ function extend(obj1, obj2) {
   }
   
   function onDraw(evt) {
+  	if (!CanvasUI.canvas) {
+  		return;
+  	}
   	var ctx = CanvasUI.ctx;
   	ctx.clearRect(0, 0, CanvasUI.canvas.width, CanvasUI.canvas.height);
   	ctx.save();
@@ -42,6 +42,26 @@ function extend(obj1, obj2) {
     }
     
     ctx.restore();
+  }
+  
+  function onAnimate(timestamp) {
+  	var ctx = CanvasUI.ctx
+  	ctx.save();
+  	
+  	var walker = function(node) {
+  		node.animate(ctx);
+  		for (var i=0; i<node._children.length; i++) {
+  			walker(node._children[i]);	
+  		}
+  	};
+  	
+  	if (CanvasUI.root) {
+  		walker(CanvasUI.root);
+  	}
+  	
+  	ctx.restore();
+  	
+  	requestAnimationFrame(onAnimate);
   }
   
   function onClick(evt) {
@@ -125,7 +145,7 @@ function extend(obj1, obj2) {
   }
   
   var textHeightCache = {};
-  CanvasUI.measureTextHeight = function(view, text) {
+  CanvasUI.measureText = function(view, text) {
     var key = [view.fontWeight, view.fontSize, view.fontFamily].join(' ');
     if (!textHeightCache[key]) {
       var div = document.createElement("div");
@@ -140,8 +160,20 @@ function extend(obj1, obj2) {
       textHeightCache[key] = div.offsetHeight;
       document.body.removeChild(div);
     }
-    return textHeightCache[key]
-  }
+    var height = textHeightCache[key];
+    
+    
+		var ctx = CanvasUI.ctx;
+		ctx.save();
+		view.applyStyles(ctx);
+		var width = ctx.measureText(text).width;
+		ctx.restore();
+		
+		return {
+			height: height,
+			width: width
+		};
+  };
 
   CanvasUI.renderBackground = function(ctx, view, drawable) {
     ctx.save();
@@ -174,6 +206,7 @@ function extend(obj1, obj2) {
     window.addEventListener("resize", onResize, false);
     window.addEventListener("click", onClick, false);
     window.addEventListener("mousemove", onMouseMove, false);
+    requestAnimationFrame(onAnimate);
     onResize();
   };
   

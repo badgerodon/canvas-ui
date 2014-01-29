@@ -1,77 +1,104 @@
-var Chatter = function() {
+var Chatter = function(attrs) {
+	attrs = attrs || {};
+	
+	this._topics = [];
 	this._peers = {};
+	
 	this._startWebSocket();
+	
+	this._onOpen = attrs.onOpen || function(id) {};
+	this._onConnect = attrs.onConnect || function(id) {};
+	this._onDisconnect = attrs.onDisconnect || function(id) {};
+	this._onOffer = attrs.onOffer || function() {};
+	this._onAnswer = attrs.onAnswer || function() {};
+	this._onMessage = attrs.onMessage || function() {};
 };
 Chatter.prototype = {
-	_acceptAnswer: function(from, description) {
-		var connection = this._peers[from].connection;
-
-		trace("Received Answer from " + from);
-
-		connection.setRemoteDescription(new RTCSessionDescription(description));
+	_acceptRemote: function(from, description) {
+		if (!this._peers[from]) {
+			this._startPeerConnection(from);
+		}
+		var peer = this._peers[from];
+		peer.connection.setRemoteDescription(new RTCSessionDescription(description));
+		for (var i=0; i<peer.candidates.length; i++) {
+			peer.connection.addIceCandidate(peer.candidates[i]);
+		}
+		peer.candidates = [];
+		
+		this._onConnect(from);
 	},
-	_acceptOffer: function(from, description) {
+	_acceptCandidate: function(from, candidate) {
+		var peer = this._peers[from];
+		if (peer.connection.remoteDescription) {
+			peer.connection.addIceCandidate(new RTCIceCandidate(candidate));
+		} else {
+			peer.candidates.push(candidate);
+		}
+	},
+	_sendAnswer: function(to) {
 		var self = this;
-
-		trace("Received Offer from " + from);
-
-		this._startPeerConnection(from);
-
-		var connection = this._peers[from].connection;
-
-		connection.setRemoteDescription(new RTCSessionDescription(description));
-		connection.createAnswer(function(description) {
-			connection.setLocalDescription(description);
-			self._send(from, "ANSWER:" + JSON.stringify(description));
+		var peer = this._peers[to];
+		peer.connection.createAnswer(function(description) {
+			peer.connection.setLocalDescription(description);
+			self._send({
+				type: "ANSWER",
+				data: description,
+				to: to
+			});
 		});
 	},
-	_addCandidate: function(from, candidate) {
+	_sendOffer: function(to) {
 		var self = this;
-
-		trace("Received Candidate from " + from);
-
-		var connection = this._peers[from].connection;
-		connection.addIceCandidate(new RTCIceCandidate(candidate));
+		var peer = this._peers[to];
+		peer.connection.createOffer(function(description) {
+			peer.connection.setLocalDescription(description);
+			self._send({
+				to: to,
+				type: "OFFER",
+				data: description
+			});
+		}, null, {
+			optional: [],
+			mandatory: {
+				OfferToReceiveAudio: false, 
+				OfferToReceiveVideo: false 
+			}
+		});
 	},
 	_startWebSocket: function() {
 		var self = this;
-		var first = true;
-		trace("Establishing Web Socket");
-		this._webSocket = new WebSocket("ws://" + location.host + ":9000/connect");
+		this._webSocket = new WebSocket("ws://" + location.host + ":9000/channel");
 		this._webSocket.onopen = function(evt) {
-			trace("Web Socket Connected");
 			console.log("WS OPEN", evt);
 		};
 		this._webSocket.onerror = function(evt) {
 			console.log("WS ERROR", evt);
 		};
 		this._webSocket.onmessage = function(evt) {
-			console.log("WS MESSAGE", evt.data);
-			if (first) {
-				self._id = evt.data;
-				first = false;
-
-				document.getElementById("session-id").textContent = self._id;
-			}
-			var parts = evt.data.split(':');
-			var from = parts[0];
-			var to = parts[1];
-			var action = parts[2];
-			var data = parts.slice(3).join(":");
-
-			if (to !== self._id) {
-				return;
-			}
-
-			switch(action) {
-			case "OFFER":
-				self._acceptOffer(from, JSON.parse(data));
+			var msg = JSON.parse(evt.data);
+			
+			console.log(msg.type, msg.from, msg.data);
+			
+			switch (msg.type) {
+			case "ID":
+				if (msg.from === 0) {
+					self._id = msg.to;
+					self._onOpen(self._id);
+				}
 				break;
 			case "ANSWER":
-				self._acceptAnswer(from, JSON.parse(data));
+				self._acceptRemote(msg.from, msg.data);
 				break;
 			case "CANDIDATE":
-				self._addCandidate(from, JSON.parse(data));
+				self._acceptCandidate(msg.from, msg.data);
+				break;
+			case "OFFER":
+				self._acceptRemote(msg.from, msg.data);
+				self._sendAnswer(msg.from);
+				break;
+			case "SUBSCRIBED":
+				self._startPeerConnection(msg.from);
+				self._sendOffer(msg.from);
 				break;
 			}
 		};
@@ -79,100 +106,93 @@ Chatter.prototype = {
 			console.log("WS CLOSE", evt);
 		};
 	},
-	_startPeerConnection: function(to) {
+	_startPeerConnection: function(userId) {
 		var self = this;
+		
+		var peer = this._peers[userId] = {
+			id: userId,
+			connection: null,
+			candidates: [],
+			hasRemote: false
+		};
 
-		if (this._peers[to]) {
-			return;
-		}
-
-		trace("Establishing Peer Connection to " + to);
-
-		var pc = new RTCPeerConnection({
+		peer.connection = new RTCPeerConnection({
 			iceServers: [{
 				url: "stun:stun.l.google.com:19302"
 			}]
 		}, {
 			optional: [{
-		        RtpDataChannels: true
-		    }]
+				RtpDataChannels: true
+		  }]
 		});
-		pc.onicecandidate = function(evt) {
-			console.log("PC ICECANDIDATE:", evt);
+		peer.connection.onicecandidate = function(evt) {
 			if (evt.candidate) {
-				self._send(to, "CANDIDATE:" + JSON.stringify(evt.candidate));
+				self._send({
+					to: userId,
+					type: "CANDIDATE",
+					data: evt.candidate
+				});
 			}
 		};
-		pc.onaddstream = function(evt) {
+		peer.connection.onaddstream = function(evt) {
 			console.log("PC ADDSTREAM:", evt);
 		};
-		pc.onremovestream = function(evt) {
+		peer.connection.onremovestream = function(evt) {
 			console.log("PC REMOVESTREAM:",evt);
 		};
-		pc.onsignalingstatechange = function(evt) {
-			console.log("PC SIGNALINGSTATECHANGE", pc.signalingState);
+		peer.connection.onsignalingstatechange = function(evt) {
+			console.log("PC SIGNALINGSTATECHANGE", peer.connection.signalingState);
 		};
-		pc.oniceconnectionstatechange = function(evt) {
-			console.log("PC ICECONNECTIONSTATECHANGE", evt);
+		peer.connection.oniceconnectionstatechange = function(evt) {
+			console.log("PC ICECONNECTIONSTATECHANGE", peer.connection.iceConnectionState);
+			if (peer.connection.iceConnectionState === 'disconnected') {
+				delete(self._peers[userId])
+				peer.connection.close();
+				self._onDisconnect(userId);
+			}
 		};
-
-		var dc = pc.createDataChannel('RTCDataChannel', {
-		    reliable: true
+		
+		peer.dataChannel = peer.connection.createDataChannel('RTCDataChannel', {
+			reliable: true
 		});
-		dc.onmessage = function (evt) {
+		peer.dataChannel.onmessage = function (evt) {
 			console.log("DC MESSAGE:", evt.data);
-
-			var parts = evt.data.split(":");
-			var action = parts[0];
-			var data = parts.slice(1).join(":");
-
-			switch(action) {
+			var msg = JSON.parse(evt.data);
+			switch (msg.type) {
 			case "MESSAGE":
-				trace("Received Message from " + to + ": " + data);
+				self._onMessage(userId, msg.data);
 				break;
 			}
-	    };
-	    dc.onopen = function () {
-	    	console.log("DC OPEN");
-
-	    	trace("Data Channel Open with " + to);
-	    };
-	    dc.onclose = function (e) {
-	        console.log("DC CLOSE");
-	    };
-	    dc.onerror = function (e) {
-	        console.log("DC ERROR");
-	    };
-
-	    this._peers[to] = {
-	    	connection: pc,
-	    	dataChannel: dc
-	    };
+    };
+    peer.dataChannel.onopen = function () {
+			console.log("DC OPEN");
+    };
+    peer.dataChannel.onclose = function (e) {
+        console.log("DC CLOSE");
+    };
+    peer.dataChannel.onerror = function (e) {
+        console.log("DC ERROR");
+    };
 	},
-	_send: function(to, msg) {
-		this._webSocket.send(this._id+":"+to+":"+msg);
+	_send: function(msg) {
+		if (msg.topic) {
+			this._webSocket.send(JSON.stringify(msg));
+		} else {
+			for (var i=0; i<this._topics.length; i++) {
+				msg.topic = this._topics[i];
+				this._webSocket.send(JSON.stringify(msg));
+			}
+		}
 	},
 	_trace: function(msg) {
 	},
 
-	connectTo: function(to) {
-		var self = this;
-
-		this._startPeerConnection(to);
-
-		var connection = this._peers[to].connection;
-
-		var mediaConstraints = {
-		    optional: [],
-		    mandatory: {
-		        OfferToReceiveAudio: false, // Hmm!!
-		        OfferToReceiveVideo: false // Hmm!!
-		    }
-		};
-		connection.createOffer(function(description) {
-			connection.setLocalDescription(description);
-			self._send(to, "OFFER:" + JSON.stringify(description));
-		}, null, mediaConstraints);
+	subscribe: function(topic) {
+		this._send({
+			topic: topic,
+			type: "SUBSCRIBE"
+		});
+		this._topics.push(topic);
 	},
 
 	sendMessage: function(message) {
@@ -181,7 +201,7 @@ Chatter.prototype = {
 		for (var to in this._peers) {
 			var dc = this._peers[to].dataChannel;
 
-			dc.send("MESSAGE:"+message);
+			dc.send(JSON.stringify(message));
 		}
 	},
 

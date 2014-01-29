@@ -1,13 +1,12 @@
 (function() {
 
-var textHeightCache = {};
-
 var View = CanvasUI.View;
 
 var Text = CanvasUI.Text = function(attrs) {
+	attrs = extend(Text.defaults, attrs);
   View.call(this, attrs);
 
-  this.text = attrs.text || "";
+  this._text = attrs.text;
   this.fontWeight = attrs.fontWeight || "normal";
   this.fontSize = attrs.fontSize || "12px";
   this.fontFamily = attrs.fontFamily || "Arial";
@@ -15,33 +14,22 @@ var Text = CanvasUI.Text = function(attrs) {
   this.color = attrs.color || "#000000";
 };
 Text.prototype = new View;
-Text.prototype.measure = function(ctx) {
-  ctx.save();
-
-  this.applyStyles(ctx);
-  var metrics = ctx.measureText(this.text);
-  this._measuredWidth = metrics.width
-  if (metrics.emHeightAscent || metrics.emHeightDescent) {
-    this._measuredHeight = metrics.emHeightAscent + metrics.emHeightDescent;
-  } else {
-    var key = [this.fontWeight, this.fontSize, this.fontFamily].join(' ');
-    if (!textHeightCache[key]) {
-      var div = document.createElement("div");
-          div.innerHTML = this.text;
-          div.style.position = 'absolute';
-          div.style.top  = '-9999px';
-          div.style.left = '-9999px';
-          div.style.fontFamily = this.fontFamily;
-          div.style.fontWeight = this.fontWeight;
-          div.style.fontSize = this.fontSize;
-      document.body.appendChild(div);
-      textHeightCache[key] = div.offsetHeight;
-      document.body.removeChild(div);
-    }
-    this._measuredHeight = textHeightCache[key];
-  }
-
-  ctx.restore();
+Text.defaults = {
+	text: "",
+	color: "#000",
+	
+	left: function() {
+		return this.parent().left();
+	},
+	top: function() {
+		return this.parent().top();
+	},
+	width: function() {
+		return this.measure().width;
+	},
+	height: function() {
+		return this.measure().height;
+	}
 };
 Text.prototype.applyStyles = function(ctx) {
   ctx.textBaseline = "top";
@@ -64,7 +52,7 @@ Text.prototype._drawShadow = function(ctx, left, top, offsetX, offsetY, color, b
   ctx.shadowOffsetX = offsetX - w;
   ctx.shadowOffsetY = offsetY;
   ctx.shadowBlur = blur;
-  ctx.fillText(this.text, left + w, top);
+  ctx.fillText(this._text, left + w, top);
 
   ctx.restore();
 };
@@ -85,9 +73,20 @@ Text.prototype.draw = function(ctx) {
     var blur = this.textShadow.blur || 0;
     this._drawShadow(ctx, left, top, offsetX, offsetY, color, blur);
   }
-  ctx.fillText(this.text, left, top, width);
+  ctx.fillText(this._text, left, top, width);
 
   ctx.restore();
+};
+Text.prototype.measure = function() {
+	return CanvasUI.measureText(this, this._text);
+};
+Text.prototype.text = function(value) {
+	if (arguments.length) {
+		this._text = value;
+		this.root().trigger("change");
+	} else {
+		return this._text;
+	}
 };
 
 })();

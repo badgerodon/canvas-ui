@@ -1,5 +1,7 @@
 (function() {
 
+var FILL = CanvasUI.FILL;
+
 var nextId = 1;
 
 var View = CanvasUI.View = function(attrs) {
@@ -49,6 +51,8 @@ View.prototype.width = function() {
 	if (isSet(this._width)) {
 		if (isFunction(this._width)) {
 			return +this._width.call(this);
+		} else if (this._width === FILL) {
+			return this.parent().width();
 		} else {
 			return +this._width;
 		}
@@ -60,6 +64,8 @@ View.prototype.height = function() {
 	if (isSet(this._height)) {
 		if (isFunction(this._height)) {
 			return +this._height.call(this);
+		} else if (this._height === FILL) {
+			return this.parent().height();
 		} else {
 			return +this._height;
 		}
@@ -79,6 +85,9 @@ View.prototype.append = function(/* children */) {
 	}
 	this.root().trigger("change");
 };
+View.prototype.children = function() {
+	return this._children;
+};
 View.prototype.bind = function(name, handler) {
 	if (!this._bound[name]) {
 		this._bound[name] = [];
@@ -93,7 +102,7 @@ View.prototype.trigger = function(name) {
 	}
 };
 View.prototype.root = function() {
-	var p =this;
+	var p = this;
 	while (p._parent) {
 		p = p._parent;
 	}
@@ -109,8 +118,20 @@ View.prototype.remove = function(child) {
 			i--;
 		}
 	}
+	var root = this.root();
 	child._parent = null;
-	this.root().trigger("change");
+	root.trigger("change");
+};
+View.prototype.replaceWith = function(view) { 
+	for (var i=0; i<this._parent._children.length; i++) {
+		if (this._parent._children[i] === this) {
+			this._parent._children[i] = view;
+			view._parent = this._parent;
+		}
+	}
+	var root = this.root();
+	this._parent = null;
+	root.trigger("change");
 };
 View.prototype.setLeft = function(obj) {
 	this._left = obj;
@@ -123,5 +144,12 @@ View.prototype.setTop = function(obj) {
 View.prototype.draw = function(ctx) {
 	CanvasUI.renderBackground(ctx, this, this._background);
 };
+View.prototype.measure = function() {
+	return {
+		width: 0,
+		height: 0
+	};
+};
+View.prototype.animate = function(ctx) {};
 
 })();
