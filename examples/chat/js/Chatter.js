@@ -21,7 +21,7 @@ Chatter.prototype = {
 		var peer = this._peers[from];
 		peer.connection.setRemoteDescription(new RTCSessionDescription(description));
 		for (var i=0; i<peer.candidates.length; i++) {
-			peer.connection.addIceCandidate(peer.candidates[i]);
+			peer.connection.addIceCandidate(new RTCIceCandidate(peer.candidates[i]));
 		}
 		peer.candidates = [];
 		
