@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Chatter</title>
+		<style>
+			body, html { margin: 0; padding: 0; overflow: hidden; }
+		</style>
+		<script src="//ajax.googleapis.com/ajax/libs/webfont/1/webfont.js"></script>
+		<script>
+		  WebFont.load({
+		    google: {
+		      families: ['Roboto']
+		    }
+		  });
+		</script>
+	</head>
+	<body>
+		<canvas></canvas>
+		<script src="../../src/CanvasUI.js"></script>
+		<script src="../../src/Constants.js"></script>
+		<script src="../../src/drawables/Drawable.js"></script>
+		<script src="../../src/drawables/Shape.js"></script>
+		<script src="../../src/views/View.js"></script>
+		<script src="../../src/views/Screen.js"></script>
+	
+<script>
+(function() {
+	
+var Bubble = function(attrs) {
+	attrs = extend(Bubble.defaults, attrs);
+	CanvasUI.View.apply(this, arguments);
+};
+Bubble.defaults = {};
+Bubble.prototype = new CanvasUI.View;
+Bubble.prototype.draw = function(ctx) {
+	ctx.save();
+	
+	var l = this.left(),
+		t = this.top(),
+		r = l + this.width(),
+		b = t + this.height(),
+		a = 15;
+	
+	ctx.beginPath();
+	ctx.moveTo(l, t+a);
+  ctx.arcTo(l, t, l+a, t, a);
+  ctx.lineTo(r-a, t);
+  ctx.arcTo(r, t, r, t+a, a);
+  ctx.lineTo(r, b-a);
+  ctx.arcTo(r, b, r-a, b, a);
+  ctx.lineTo(l+40, b);
+  ctx.lineTo(l+15, b+15);
+  ctx.lineTo(l+20, b);
+  ctx.lineTo(l+a, b);
+  ctx.arcTo(l, b, l, b-a, a);
+  ctx.lineTo(l, t + a);
+  
+  var gradient = ctx.createLinearGradient(l, t, l, b + 15);
+  gradient.addColorStop(0, "rgba(255,100,0,0.2)");
+  gradient.addColorStop(1, "rgba(255,100,0,0.5)");
+  ctx.fillStyle = gradient;
+	ctx.fill();
+	
+	ctx.lineWidth = 0.5;
+	ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
+	ctx.stroke();
+	
+	ctx.restore();
+};
+
+var screen = new CanvasUI.Screen({
+		background: "#FFF",
+		children: [new Bubble({
+			left: 100,
+			top: 100,
+			width: 150,
+			height: 150
+		})]
+});
+CanvasUI.setRoot(screen);
+CanvasUI.init();
+
+})();
+</script>
+	</body>
+</html>

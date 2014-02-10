@@ -64,6 +64,7 @@ Text.prototype.draw = function(ctx) {
 	var left = Math.round(this.left());
 	var top = Math.round(this.top());
 	var width = Math.round(this.width());
+	var height = Math.round(this.height());
 
   this.applyStyles(ctx);
   if (this.textShadow) {
@@ -73,7 +74,10 @@ Text.prototype.draw = function(ctx) {
     var blur = this.textShadow.blur || 0;
     this._drawShadow(ctx, left, top, offsetX, offsetY, color, blur);
   }
-  ctx.fillText(this._text, left, top, width);
+  var lines = this._text.split("\n");
+  for (var i=0; i<lines.length; i++) {
+  	ctx.fillText(lines[i], left, top+i*20, width);
+  }
 
   ctx.restore();
 };

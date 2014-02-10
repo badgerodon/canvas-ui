@@ -4,205 +4,207 @@ var Chatter = function(attrs) {
 	this._topics = [];
 	this._peers = {};
 	
-	this._startWebSocket();
+	this.ws = null;
+	this.pc = null;
+	this.dc = null;
+	this.from = null;
+	this.to = null;
+	this.candidates = [];
 	
-	this._onOpen = attrs.onOpen || function(id) {};
-	this._onConnect = attrs.onConnect || function(id) {};
-	this._onDisconnect = attrs.onDisconnect || function(id) {};
-	this._onOffer = attrs.onOffer || function() {};
-	this._onAnswer = attrs.onAnswer || function() {};
+	this._onOpen = attrs.onOpen || function() {};
+	this._onConnect = attrs.onConnect || function() {};
+	this._onDisconnect = attrs.onDisconnect || function() {};
 	this._onMessage = attrs.onMessage || function() {};
+	/*
+	this._onConnect = attrs.onConnect || function(id) {};
+	this._onOffer = attrs.onOffer || function() {};
+	this._onAnswer = attrs.onAnswer || function() {};*/
 };
 Chatter.prototype = {
-	_acceptRemote: function(from, description) {
-		if (!this._peers[from]) {
-			this._startPeerConnection(from);
-		}
-		var peer = this._peers[from];
-		peer.connection.setRemoteDescription(new RTCSessionDescription(description));
-		for (var i=0; i<peer.candidates.length; i++) {
-			peer.connection.addIceCandidate(new RTCIceCandidate(peer.candidates[i]));
-		}
-		peer.candidates = [];
-		
-		this._onConnect(from);
+	 addCandidates: function(/* 0 or more candidates */) {
+	  this.candidates.push.apply(this.candidates, arguments);
+	 
+	  // only actually add the candidates if the remote description has been set
+	  if (this.pc.remoteDescription) {
+	    for (var i=0; i<this.candidates.length; i++) {
+	      this.pc.addIceCandidate(new RTCIceCandidate(this.candidates[i]));
+	    }
+	    this.candidates = [];
+	  }
 	},
-	_acceptCandidate: function(from, candidate) {
-		var peer = this._peers[from];
-		if (peer.connection.remoteDescription) {
-			peer.connection.addIceCandidate(new RTCIceCandidate(candidate));
-		} else {
-			peer.candidates.push(candidate);
-		}
-	},
-	_sendAnswer: function(to) {
+	sendAnswer: function() {
 		var self = this;
-		var peer = this._peers[to];
-		peer.connection.createAnswer(function(description) {
-			peer.connection.setLocalDescription(description);
-			self._send({
-				type: "ANSWER",
-				data: description,
-				to: to
-			});
-		});
+	  self.pc.createAnswer(function(description) {
+	    self.pc.setLocalDescription(description);
+	    self.ws.send(JSON.stringify({
+	      topic: self.topic,
+	      type: "ANSWER",
+	      to: self.to,
+	      data: description
+	    }));
+	  });
 	},
-	_sendOffer: function(to) {
+	sendOffer: function() {
 		var self = this;
-		var peer = this._peers[to];
-		peer.connection.createOffer(function(description) {
-			peer.connection.setLocalDescription(description);
-			self._send({
-				to: to,
-				type: "OFFER",
-				data: description
-			});
-		}, null, {
-			optional: [],
-			mandatory: {
-				OfferToReceiveAudio: false, 
-				OfferToReceiveVideo: false 
-			}
-		});
+	  self.pc.createOffer(function(description) {
+	    self.pc.setLocalDescription(description);
+	    self.ws.send(JSON.stringify({
+	      topic: self.topic,
+	      type: "OFFER",
+	      to: self.to,
+	      data: description
+	    }));
+	  }, null, {
+	    optional: [],
+	    mandatory: {
+	      OfferToReceiveAudio: false,
+	      OfferToReceiveVideo: false
+	    }
+	  });
 	},
-	_startWebSocket: function() {
+	setRemoteDescription: function(description) {
+	  this.pc.setRemoteDescription(new RTCSessionDescription(description));
+	  this.addCandidates();
+	},
+	startWebSocket: function() {
 		var self = this;
-		this._webSocket = new WebSocket("ws://" + location.host + ":9000/channel");
-		this._webSocket.onopen = function(evt) {
-			console.log("WS OPEN", evt);
-		};
-		this._webSocket.onerror = function(evt) {
-			console.log("WS ERROR", evt);
-		};
-		this._webSocket.onmessage = function(evt) {
-			var msg = JSON.parse(evt.data);
-			
-			console.log(msg.type, msg.from, msg.data);
-			
-			switch (msg.type) {
-			case "ID":
-				if (msg.from === 0) {
-					self._id = msg.to;
-					self._onOpen(self._id);
-				}
-				break;
+		self.ws = new WebSocket("ws://prod-do.badgerodon.com:9000/channel");
+	  self.ws.onopen = function() {
+	    trace("     web socket | opened");
+	    self.ws.send(JSON.stringify({
+	      topic: self.topic,
+	      type: "SUBSCRIBE"
+	    }));
+	  };
+	  self.ws.onerror = function() {
+	  	trace("web socket | error");
+	  };
+	  self.ws.onclose = function() {
+	    trace("web socket | closed");
+	  };
+	  self.ws.onmessage = function(evt) {
+	    var msg = JSON.parse(evt.data);
+	    switch (msg.type) {
+	    // (1) the server tells us our id
+	    case "ID":
+	      trace("     web socket | your id: " + msg.to);
+	    	self._onOpen(msg.to);
+	      self.from = msg.to;
+	      break;
+	    // (2a) the first user to show up will be told when the second user shows up
+	    case "SUBSCRIBED":
+	      trace("     web socket | joined: " + msg.from);
+	      self.to = msg.from;
+	      // start the connection
+	      self.startPeerConnection();
+	      // send an offer to the other user
+	      self.sendOffer();
+	      break;
+	    case "UNSUBSCRIBED":
+	      trace("     web socket | left: " + msg.from);
+	      break;
+	    // (2b) the second user receives the first user's offer
+	    case "OFFER":
+	      trace("     web socket | offer from: " + msg.from + ", " + JSON.stringify(msg.data));
+	      self.to = msg.from;
+	      // start the connection
+	      self.startPeerConnection();
+	      // accept the offer
+	      self.setRemoteDescription(msg.data);
+	      // send an answer to the first user
+	      self.sendAnswer();
+	      break;
+	    // (3a) the first user receives the answer from the second user
 			case "ANSWER":
-				self._acceptRemote(msg.from, msg.data);
+	      trace("     web socket | answer from: " + msg.from + ", " + JSON.stringify(msg.data));
+	      self.setRemoteDescription(msg.data);
 				break;
+	    // (4) both users receive ICE candidates from each other
 			case "CANDIDATE":
-				self._acceptCandidate(msg.from, msg.data);
+	      trace("     web socket | candidate from: " + msg.from + ", " + JSON.stringify(msg.data));
+	      self.addCandidates(msg.data);
 				break;
-			case "OFFER":
-				self._acceptRemote(msg.from, msg.data);
-				self._sendAnswer(msg.from);
-				break;
-			case "SUBSCRIBED":
-				self._startPeerConnection(msg.from);
-				self._sendOffer(msg.from);
-				break;
-			}
-		};
-		this._webSocket.onclose = function(evt) {
-			console.log("WS CLOSE", evt);
-		};
+	    }
+	  };
 	},
-	_startPeerConnection: function(userId) {
+	startPeerConnection: function(userId) {
 		var self = this;
-		
-		var peer = this._peers[userId] = {
-			id: userId,
-			connection: null,
-			candidates: [],
-			hasRemote: false
-		};
-
-		peer.connection = new RTCPeerConnection({
-			iceServers: [{
-				url: "stun:stun.l.google.com:19302"
-			}]
-		}, {
-			optional: [{
-				RtpDataChannels: true
-		  }]
-		});
-		peer.connection.onicecandidate = function(evt) {
-			if (evt.candidate) {
-				self._send({
-					to: userId,
-					type: "CANDIDATE",
-					data: evt.candidate
-				});
-			}
-		};
-		peer.connection.onaddstream = function(evt) {
-			console.log("PC ADDSTREAM:", evt);
-		};
-		peer.connection.onremovestream = function(evt) {
-			console.log("PC REMOVESTREAM:",evt);
-		};
-		peer.connection.onsignalingstatechange = function(evt) {
-			console.log("PC SIGNALINGSTATECHANGE", peer.connection.signalingState);
-		};
-		peer.connection.oniceconnectionstatechange = function(evt) {
-			console.log("PC ICECONNECTIONSTATECHANGE", peer.connection.iceConnectionState);
-			if (peer.connection.iceConnectionState === 'disconnected') {
-				delete(self._peers[userId])
-				peer.connection.close();
-				self._onDisconnect(userId);
-			}
-		};
-		
-		peer.dataChannel = peer.connection.createDataChannel('RTCDataChannel', {
-			reliable: true
-		});
-		peer.dataChannel.onmessage = function (evt) {
-			console.log("DC MESSAGE:", evt.data);
-			var msg = JSON.parse(evt.data);
-			switch (msg.type) {
-			case "MESSAGE":
-				self._onMessage(userId, msg.data);
-				break;
-			}
-    };
-    peer.dataChannel.onopen = function () {
-			console.log("DC OPEN");
-    };
-    peer.dataChannel.onclose = function (e) {
-        console.log("DC CLOSE");
-    };
-    peer.dataChannel.onerror = function (e) {
-        console.log("DC ERROR");
-    };
+	  if (self.dc) {
+	    self.dc.close();
+	    self.dc = null;
+	  }
+	  if (self.pc) {
+	    self.pc.close();
+	    self.pc = null;
+	  }
+	 
+	  self.pc = new RTCPeerConnection({
+	    iceServers: [{
+	      // stun allows NAT traversal
+	      url: "stun:stun.l.google.com:19302"
+	    }]
+	  }, {
+	    // we are going to communicate over a data channel
+	    optional: [{
+	      RtpDataChannels: true
+	    }]
+	  });
+	  // send all ice candidates to our peer
+	  self.pc.onicecandidate = function(evt) {
+	    if (evt.candidate) {
+	      self.ws.send(JSON.stringify({
+	        topic: self.topic,
+	        type: "CANDIDATE",
+	        to: self.to,
+	        data: evt.candidate
+	      }));
+	    }
+	  };
+	  self.pc.onclose = function() {
+	  	self.pc = null;
+	  };
+	  // close on disconnect
+	  self.pc.oniceconnectionstatechange = function(evt) {
+	    trace("peer connection | ice connection state: " + (self.pc && self.pc.iceConnectionState));
+	    if (self.pc && self.pc.iceConnectionState === 'disconnected') {
+	      self.pc.close();
+	    }
+	  };
+	 
+	  // create the data channel, use TCP
+	  self.dc = self.pc.createDataChannel("RTCDataChannel", {
+	    reliable: true
+	  });
+	  self.dc.onopen = function(evt) {
+	    trace("   data channel | opened");
+    	self._onConnect(userId);
+	  };
+	  self.dc.onclose = function(evt) {
+	    trace("   data channel | closed");
+    	self._onDisconnect(userId);
+    	self.dc = null;
+	  };
+	  self.dc.onerror = function(evt) {
+	    trace("   data channel | error: " + JSON.stringify(evt));
+	  }
+	  self.dc.onmessage = function(evt) {
+	    var msg = JSON.parse(evt.data);
+	    switch (msg.type) {
+	    case "MESSAGE":
+	      trace("   data channel | message from: " + msg.from + ", " + msg.data);
+	      self._onMessage(msg.from, msg.data);
+	      break;
+	    }
+	  };
 	},
-	_send: function(msg) {
-		if (msg.topic) {
-			this._webSocket.send(JSON.stringify(msg));
-		} else {
-			for (var i=0; i<this._topics.length; i++) {
-				msg.topic = this._topics[i];
-				this._webSocket.send(JSON.stringify(msg));
-			}
-		}
-	},
-	_trace: function(msg) {
-	},
-
 	subscribe: function(topic) {
-		this._send({
-			topic: topic,
-			type: "SUBSCRIBE"
-		});
-		this._topics.push(topic);
+		this.topic = topic;
+		this.startWebSocket();
 	},
-
 	sendMessage: function(message) {
-		var self = this;
-
-		for (var to in this._peers) {
-			var dc = this._peers[to].dataChannel;
-
-			dc.send(JSON.stringify(message));
-		}
+		message.from = this.from;
+		message.to = this.to;
+		this.dc.send(JSON.stringify(message));
 	},
 
 };

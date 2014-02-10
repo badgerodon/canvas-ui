@@ -81,7 +81,7 @@ var UI = {};
 		}
 	});
 	UI.connectId = new EditText({
-		placeholder: "Enter a Room",
+		placeholder: "Enter a Topic",
 		fontFamily: FONT,
 		fontSize: "16px",
 		left: function() {
@@ -108,7 +108,19 @@ var UI = {};
 			UI.connectTitle,
 			UI.connectId,
 			UI.connectButton
-		]
+		],
+		left: function() {
+			return this.parent().left()+10;
+		},
+		width: function() {
+			return this.parent().width()-20;
+		},
+		top: function() {
+			return this.parent().top()+10;
+		},
+		height: function() {
+			return this.parent().height()-20;
+		}
 	});
 	
 	// Incoming Connection
@@ -197,7 +209,7 @@ var UI = {};
 			return this.parent().top() + this.parent().height() - this.height();
 		},
 		width: function() {
-			return this.parent().width() - UI.chatSendButton.width();	
+			return this.parent().width() - UI.chatSendButton.width() - 10;	
 		}
 	});
 	UI.chatFrame = new Frame({
@@ -205,7 +217,19 @@ var UI = {};
 			UI.chatHistory,
 			UI.chatEntry,
 			UI.chatSendButton
-		]
+		],
+		left: function() {
+			return this.parent().left()+10;
+		},
+		width: function() {
+			return this.parent().width()-20;
+		},
+		top: function() {
+			return this.parent().top()+10;
+		},
+		height: function() {
+			return this.parent().height()-20;
+		}
 	});
 	
 	UI.middleSection = new Frame({
